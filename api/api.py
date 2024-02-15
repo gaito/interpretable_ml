@@ -1,161 +1,114 @@
 import os
 import time
 import random
-from urllib import response
-
 from flask import Flask, jsonify, json, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
-
 app = Flask(__name__)
-cors = CORS(app)
+CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///tmp/test.db'
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-
-class User(db.Model):
-    user_id = db.Column(db.Integer, nullable=False, primary_key=True)
-    task = db.Column(db.Integer, nullable=False)
-
-    def __init__(self, task):
-        self.task = task
-
-
-class Responses(db.Model):
+class PlantProfile(db.Model):
     id = db.Column(db.Integer, nullable=False, primary_key=True)
-    q_id = db.Column(db.String(20), nullable=False)
     user_id = db.Column(db.Integer, nullable=False)
-    ans = db.Column(db.Integer, nullable=False)
-    text = db.Column(db.String(50), nullable=False)
-    time = db.Column(db.Float, nullable=False)
+    plant_name = db.Column(db.String(100), nullable=False)
+    plant_type = db.Column(db.String(100), nullable=False)
 
-    def __init__(self, q_id, user_id, ans, text, time):
-        self.q_id = q_id
+    def __init__(self, user_id, plant_name, plant_type):
         self.user_id = user_id
-        self.ans = ans
-        self.text = text
-        self.time = time
+        self.plant_name = plant_name
+        self.plant_type = plant_type
+
+@app.route('/deleteAllPlantProfiles', methods=['DELETE'])
+def delete_all_plant_profiles():
+    try:
+        PlantProfile.query.delete()
+        db.session.commit()
+        return jsonify({'message': 'All plant profiles successfully deleted'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/getPlantProfiles/<int:user_id>', methods=['GET'])
+def get_plant_profiles(user_id):
+    plant_profiles = PlantProfile.query.filter_by(user_id=user_id).all()
+    profiles_data = []
+    for profile in plant_profiles:
+        profiles_data.append({
+            'id': profile.id,
+            'user_id': profile.user_id,
+            'plant_name': profile.plant_name,
+            'plant_type': profile.plant_type
+            # Include additional fields as needed
+        })
+    return jsonify(profiles_data)
+
+@app.route('/addPlantProfile', methods=['POST'])
+def add_plant_profile():
+    user_id = 1  # Set a constant user_id
+    request_data = json.loads(request.data)
+    plant_name = request_data['plant_name']
+    plant_type = request_data['plant_type']
+    new_entry = PlantProfile(user_id=user_id, plant_name=plant_name, plant_type=plant_type)
+    db.session.add(new_entry)
+    db.session.commit()
+    msg = "Plant profile successfully added"
+    print(msg)
+    response_body = {'user_id': user_id}
+    return jsonify(response_body)
+
+@app.route('/deletePlantProfile/<string:plant_name>', methods=['DELETE'])
+def delete_plant_profile(plant_name):
+    plant_profile = PlantProfile.query.filter_by(plant_name=plant_name).first()
+    if plant_profile:
+        db.session.delete(plant_profile)
+        db.session.commit()
+        msg = f"Plant profile with name '{plant_name}' successfully deleted"
+        print(msg)
+        return jsonify({'message': msg}), 200
+    else:
+        return jsonify({'message': f"Plant profile with name '{plant_name}' not found"}), 404
 
 
-class Survey(db.Model):
+class HealthHistory(db.Model):
     id = db.Column(db.Integer, nullable=False, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False)
-    q1 = db.Column(db.Integer, nullable=False)
-    q2 = db.Column(db.Integer, nullable=False)
+    plant_id = db.Column(db.Integer, nullable=False)
+    disease = db.Column(db.String(100), nullable=False)
+    bug = db.Column(db.String(100), nullable=False)
+    confidence_interval = db.Column(db.Float, nullable=False)
+    severity_rating = db.Column(db.Integer, nullable=False)
 
-    def __init__(self, user_id, q1, q2):
-      self.user_id = user_id
-      self.q1 = q1
-      self.q2 = q2
+    def __init__(self, plant_id, disease, bug, confidence_interval, severity_rating):
+        self.plant_id = plant_id
+        self.disease = disease
+        self.bug = bug
+        self.confidence_interval = confidence_interval
+        self.severity_rating = severity_rating
 
-
-# define image names. You can load this information from a local file or a database
-images = [{'name': 'cardinal.jpg', 'label': 'Cardinal'}, 
-          {'name': 'bluejay.jpg', 'label': 'Blue jay'},
-          {'name': 'cedarwaxwing.jpg', 'label': 'Cedar waxwing'}]
-
-# check that the backend is connected
-@app.route('/time')
-def get_current_time():
-    return jsonify({'time': time.strftime("%I:%M:%S %p", time.localtime())})
-
-# send data from backend to frontend
-
-# use case 1: assign a random task to the current user and create an id
-@app.route('/setup', methods=['GET'])
-def setup():
-    task_num = random.randint(1,2)
-    new_user = User(task=task_num)
-    db.session.add(new_user)
-    db.session.commit()
-    user_id = new_user.user_id
-    response = {'user_id': user_id, 'task_number': task_num}
-    return jsonify(response)
-
-@app.route('/setup_main', methods=['GET'])
-def setup_main():
-    # fix the task to 1 to display Main1
-    task_num = 1
-    new_user = User(task=task_num)
-    db.session.add(new_user)
-    db.session.commit()
-    user_id = new_user.user_id
-    response = {'user_id': user_id, 'task_number': task_num}
-    return jsonify(response)
-
-# use case 2:# define the order of the images to be loaded
-@app.route('/imageInfo', methods=['GET'])
-def getImageInfo():
-    random.shuffle(images)
-    response_body = {'imgs': images}
-    return jsonify(response_body)
-
-
-# send data from frontend to backend
-@app.route('/responsesData', methods=['POST'])
-def responsesData():
+@app.route('/addHealthHistory', methods=['POST'])
+def add_health_history():
+    user_id = 1  # Set a constant user_id
     request_data = json.loads(request.data)
-    q_id = request_data['q_id']
-    user_id = request_data['user_id']
-    ans = request_data['ans']
-    text = request_data['input']
-    time = request_data['time']
-    print('saving data')
-    new_entry = Responses(q_id, user_id, ans, text, time)
+    plant_id = request_data['plant_id']
+    disease = request_data['disease']
+    bug = request_data['bug']
+    confidence_interval = request_data['confidence_interval']
+    severity_rating = request_data['severity_rating']
+    new_entry = HealthHistory(plant_id=plant_id, disease=disease, bug=bug, confidence_interval=confidence_interval, severity_rating=severity_rating)
     db.session.add(new_entry)
     db.session.commit()
-    msg = "Record successfully added"
+    msg = "Health history successfully added"
     print(msg)
-    response_body = {'user_id': user_id}
+    response_body = {'plant_id': plant_id}
     return jsonify(response_body)
 
-
-@app.route('/surveyData', methods=['POST'])
-def surveyData():
-    request_data = json.loads(request.data)
-    user_id = request_data['user_id']
-    q1 = request_data['q1']
-    q2 = request_data['q2']
-    new_entry = Survey(user_id=user_id, q1=q1, q2=q2)
-    db.session.add(new_entry)
-    db.session.commit()
-    msg = "Record successfully added"
-    print(msg)
-    response_body = {'user_id': user_id}
-    return jsonify(response_body) 
-
-
-# auxiliary functions to visualize stored data
-def responses_serializer(obj):
-    return {
-      'id': obj.id,
-      'q_id': obj.q_id,
-      'user_id': obj.user_id,
-      'ans': obj.ans,
-      'text': obj.text,
-      'time': obj.time
-    }
-
-
-def user_serializer(obj):
-  return {
-    'user_id': obj.user_id,
-    'task': obj.task
-  }
-
-
-# visualize the current entries in the tables
-@app.route('/api', methods=['GET'])
-def api():
-    return jsonify([*map(responses_serializer, Responses.query.all())])
-    # return jsonify([*map(user_serializer, User.query.all())])
-
+# Your other routes and functions...
 
 if __name__ == "__main__":
     db.create_all()
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-
